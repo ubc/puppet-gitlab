@@ -60,6 +60,12 @@ class gitlab::pre {
             provider => yum;
       }
 
+      include ::rvm
+
+      rvm_system_ruby { 'ruby-1.9.3':
+        ensure      => 'present',
+        default_use => true,
+      }
     } # Redhat pre-requists
     default: {
       err "${::osfamily} not supported yet"
@@ -71,9 +77,8 @@ class gitlab::pre {
       ensure   => installed;
   }
 
-  package {
-    ['openssh-server','git','curl']:
-      ensure => installed;
-  }
+  if ! defined(Package['openssh-server'])  { package { 'openssh-server':  ensure => present } }
+  if ! defined(Package['git'])             { package { 'git':             ensure => present } }
+  if ! defined(Package['curl'])            { package { 'curl':            ensure => present } }
 
 } # Class:: gitlab::pre

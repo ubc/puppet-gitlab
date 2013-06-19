@@ -29,14 +29,18 @@ class gitlab::server {
   $ldap_bind_password = $gitlab::ldap_bind_password
 
 
-  package {
-    'bundler':
-      ensure   => installed,
-      provider => gem;
-    'charlock_holmes':
-      ensure   => '0.6.9.4',
-      provider => gem;
+  rvm_gem { 'bundler': 
+    ensure      => present,
+    ruby_version => 'ruby-1.9.3',
+    require     => Rvm_system_ruby['ruby-1.9.3'],
   }
+
+  rvm_gem { 'charlock_holmes': 
+    ensure      => present,
+    ruby_version => 'ruby-1.9.3',
+  }
+
+  rvm::system_user { gitlab: }
 
   $gitlab_without_gems = $gitlab_dbtype ? {
     mysql    => 'postgres',
@@ -45,7 +49,7 @@ class gitlab::server {
   }
 
   Exec{
-    path => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+    path => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/rvm/bin',
     logoutput   => 'on_failure',
   }
 
@@ -56,7 +60,8 @@ class gitlab::server {
       cwd         => $git_home,
       user        => $git_user;
     'Install gitlab':
-      command  => "bundle install --without development test ${gitlab_without_gems} --deployment",
+
+      command  => "rvm 1.9.3 do bundle install --without development test ${gitlab_without_gems} --deployment",
       provider => 'shell',
       cwd      => "${git_home}/gitlab",
       user     => $git_user,
@@ -64,13 +69,13 @@ class gitlab::server {
       timeout  => 0,
       require  => [
         Exec['Get gitlab'],
-        Package['bundler']
+        Rvm_gem['bundler']
       ];
     # FIXME sudo ln -s /usr/bin/python /usr/bin/python2
     # recommanded by gitlab (bundle exec rake gitlab:check RAILS_ENV=production)
     # but it's a bit ugly...
     'Setup gitlab DB':
-      command     => '/usr/bin/yes yes | bundle exec rake gitlab:setup RAILS_ENV=production',
+      command     => '/usr/bin/yes yes | rvm 1.9.3 do bundle exec rake gitlab:setup RAILS_ENV=production',
       provider    => 'shell',
       cwd         => "${git_home}/gitlab",
       user        => $git_user,
@@ -80,7 +85,7 @@ class gitlab::server {
         File["${git_home}/gitlab/config/database.yml"],
         File["${git_home}/gitlab/tmp"],
         Sshkey['localhost'],
-        Package['bundler']
+        Rvm_gem['bundler']
         ],
       refreshonly => true;
   }
@@ -191,18 +196,20 @@ class gitlab::server {
       owner   => root,
       group   => root,
       mode    => '0755',
-      notify  => Service['gitlab'],
-      require => Exec['Setup gitlab DB'];
+      require => Exec['Setup gitlab DB'],
   }
 
   service {
     'gitlab':
       ensure     => running,
-      require    => File['/etc/init.d/gitlab'],
       pattern    => 'puma',
       hasrestart => true,
-      enable     => true;
+      enable     => true,
+      hasstatus  => false,
+      subscribe  => File['/etc/init.d/gitlab'],
   }
+
+  include nginx::service
 
   file {
     '/etc/nginx/conf.d/gitlab.conf':
@@ -210,7 +217,8 @@ class gitlab::server {
       content => template('gitlab/nginx-gitlab.conf.erb'),
       owner   => root,
       group   => root,
-      mode    => '0644';
+      mode    => '0644',
+      notify  => Class['nginx::service'],
   }
 
 } # Class:: gitlab::server
